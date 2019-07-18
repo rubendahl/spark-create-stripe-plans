@@ -46,6 +46,8 @@ class CreateStripePlans extends Command
     {
         Stripe\Stripe::setApiKey(config('services.stripe.secret'));
 
+        $this->fetchExistingStripeProducts();
+
         $this->info('Creating user plans...');
         $this->createStripePlans(Spark::$plans);
 
@@ -54,6 +56,28 @@ class CreateStripePlans extends Command
 
         $this->info('Finished');
     }
+
+
+
+
+
+    /**
+     * Try adn fetch existing products from Stripe
+     *
+     * @param array $plans
+     */
+    public function fetchExistingStripeProducts() {
+        $products = \Stripe\Product::all(['active'=>'true']);
+        $this->existingStripeProducts = collect($products->getIterator());
+        return $this->existingStripeProducts;
+    }
+
+    public function findExistingStripeProductFor($data) {
+        return $this->existingStripeProducts->map(function ($prod) use ($data){
+            return $prod->name == $data['name'];
+        })->first();
+    }
+
 
     /**
      * Try and create plans in Stripe
@@ -87,17 +111,34 @@ class CreateStripePlans extends Command
      */
     protected function createPlan($plan)
     {
-        $name = Spark::$details['product'] . ' ' . $plan->name . ' (' .
-                 Cashier::usesCurrencySymbol() . $plan->price . ' ' . $plan->interval .
-             ')';
+        $name = $plan->name;
+
+        $stripeDataDefaults = Spark::$details['stripe_data_defaults'];
+
+        $longName = Spark::$details['product'] . ' ' . $plan->name . ' (' .
+                        Cashier::usesCurrencySymbol() . $plan->price . ' ' . $plan->interval .
+                        ')';
+
+
+        $productData = [
+            'name' => $name,
+            'statement_descriptor' => $stripe_data_defaults['statement_descriptor'] ?? Spark::$details['vendor'],
+        ];
+
+        // TODO: Find existing product to avoid duplicate products.
+        $existingProduct = $this->findExistingStripeProductFor($productData);
+        if ($existingProduct) {
+            $this->info(" <- existing Stripe product: " . print_r($existingProduct, true));
+            $productData = $existingProduct->id;
+        }
 
         $stripeData = [
            'id'                   => $plan->id,
-           'name'                 => $name,
+           'nickname'             => $plan->id,
            'amount'               => $plan->price * 100,
            'interval'             => str_replace('ly', '', $plan->interval),
            'currency'             => Cashier::usesCurrency(),
-           'statement_descriptor' => Spark::$details['vendor'],
+           'product'              => $productData,
            'trial_period_days'    => $plan->trialDays,
         ];
         $this->info("-> prepared Stripe data: " . print_r($stripeData, true));
