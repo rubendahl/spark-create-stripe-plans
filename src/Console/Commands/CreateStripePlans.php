@@ -14,7 +14,11 @@ class CreateStripePlans extends Command
      *
      * @var string
      */
-    protected $signature = 'spark:create-stripe-plans';
+    protected $signature = 'spark:create-stripe-plans '
+        . ' {--create : Create plans in Stripe} '
+        . ' {--archived : Include archived plans} '
+        . ' {--free : Include free plans} '
+        . '';
 
     /**
      * The console command description.
@@ -60,22 +64,47 @@ class CreateStripePlans extends Command
     {
         foreach ($plans as $plan) {
             if ($this->planExists($plan)) {
-                $this->line('Stripe plan ' . $plan->id . ' already exists');
+                $this->info('Stripe plan ' . $plan->id . ' already exists');
             } else {
-                Stripe\Plan::create([
-                   'id'                   => $plan->id,
-                   'name'                 => Spark::$details['product'] . ' ' . $plan->name . ' (' .
-                                             Cashier::usesCurrencySymbol() . $plan->price . ' ' . $plan->interval .
-                                             ')',
-                   'amount'               => $plan->price * 100,
-                   'interval'             => str_replace('ly', '', $plan->interval),
-                   'currency'             => Cashier::usesCurrency(),
-                   'statement_descriptor' => Spark::$details['vendor'],
-                   'trial_period_days'    => $plan->trialDays,
-                ]);
-
-                $this->info('Stripe plan created: ' . $plan->id);
+                $this->info("Found Spark plan: " . $plan->name);
+                if (!$plan->active && !$this->option('archived')) {
+                    $this->line("- skipping archived plan " . $plan->name);
+                    continue;
+                }
+                if ($plan->price === 0 && !$this->option('free')) {
+                    $this->line("- skipping free plan " . $plan->name);
+                    continue;
+                }
+                $this->createPlan($plan);
             }
+        }
+    }
+
+    /**
+     * Try and create a plan in Stripe
+     *
+     * @param mixed $plan
+     */
+    protected function createPlan($plan)
+    {
+        $name = Spark::$details['product'] . ' ' . $plan->name . ' (' .
+                 Cashier::usesCurrencySymbol() . $plan->price . ' ' . $plan->interval .
+             ')';
+
+        $stripeData = [
+           'id'                   => $plan->id,
+           'name'                 => $name,
+           'amount'               => $plan->price * 100,
+           'interval'             => str_replace('ly', '', $plan->interval),
+           'currency'             => Cashier::usesCurrency(),
+           'statement_descriptor' => Spark::$details['vendor'],
+           'trial_period_days'    => $plan->trialDays,
+        ];
+        $this->info("-> prepared Stripe data: " . print_r($stripeData, true));
+
+        if ($this->option('create')) {
+            $stripePlan = Stripe\Plan::create($stripeData);
+            $this->info('Stripe plan created: ' . $plan->id);
         }
     }
 
