@@ -3,12 +3,15 @@
 namespace Gilbitron\Laravel\Spark\Console\Commands;
 
 use Illuminate\Console\Command;
+use Illuminate\Console\ConfirmableTrait;
 use Laravel\Cashier\Cashier;
 use Laravel\Spark\Spark;
 use Stripe;
 
 class CreateStripePlans extends Command
 {
+    use ConfirmableTrait;
+
     /**
      * The name and signature of the console command.
      *
@@ -18,6 +21,7 @@ class CreateStripePlans extends Command
         . ' {--create : Create plans in Stripe} '
         . ' {--archived : Include archived plans} '
         . ' {--free : Include free plans} '
+        . ' {--force : Force the operation to run when in production} '
         . '';
 
     /**
@@ -44,6 +48,10 @@ class CreateStripePlans extends Command
      */
     public function handle()
     {
+        if (! $this->confirmToProceed()) {
+            return;
+        }
+
         Stripe\Stripe::setApiKey(config('services.stripe.secret'));
 
         $this->fetchExistingStripeProducts();
